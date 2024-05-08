@@ -1,3 +1,11 @@
+/*
+This sketch is designed for the LaskaKit Meteo Mini Meteostanice 2.0, utilizing an ESP32-C3-MINI microcontroller. 
+It integrates the Adafruit BME280 sensor for measuring temperature, humidity, and atmospheric pressure. Additionally, 
+it employs the ESP32AnalogRead library to read battery voltage via an ADC pin, adjusted by a specified voltage divider ratio. 
+The code initializes communication with these sensors upon startup, checks for their presence, and continuously gathers 
+and displays environmental data and battery voltage on the serial monitor every second. 
+*/
+
 #include <Wire.h>
 #include <Adafruit_BME280.h>
 #include <ESP32AnalogRead.h>      // ESP32AnalogRead by madhephaestus https://github.com/madhephaestus/ESP32AnalogRead
