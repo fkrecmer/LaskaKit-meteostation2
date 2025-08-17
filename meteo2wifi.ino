@@ -12,50 +12,38 @@
 #include <Wire.h>
 #include <Adafruit_BME280.h>
 #include <ESP32AnalogRead.h>
+#include <ArduinoJson.h>
 #include "esp_sleep.h"
 
-// Replace these with your actual credentials and server URL
-#define WIFI_SSID "YOUR_WIFI_SSID"
-#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
-#define SERVER_URL "http://your.server.address/data"
+#define WIFI_SSID       "<your_ssid>"
+#define WIFI_PASSWORD   "<your_password>"
+#define SERVER_URL      "<your-server:port>"
 
-#define ADC_PIN 0                 
-#define SDA 19
-#define SCL 18
-#define PIN_ON 3
-#define deviderRatio 1.7693877551 
-#define SLEEP_TIME 300000000 // 300 seconds (5 minutes) in microseconds
+#define ADC_PIN         0                 
+#define I2C_SDA         19
+#define I2C_SCL         18
+#define SENSOR_PWR_PIN  3
+#define VOLTAGE_DIVIDER_RATIO  1.7693877551 
+#define SLEEP_TIME_US   300000000ULL  // 5 minutes
 
 Adafruit_BME280 bme;
 ESP32AnalogRead adc;
 
-void setup() {
-    Serial.begin(115200);
-    
-    pinMode(PIN_ON, OUTPUT);
-    digitalWrite(PIN_ON, HIGH);
-
-    Wire.begin(SDA, SCL);
-
-    if (!bme.begin()) {
-        Serial.println("BME280 not found");
-        while (1) delay(1);
-    }
-
-    // Connect to Wi-Fi
+bool connectToWiFi(unsigned long timeout = 15000) {
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     Serial.print("Connecting to WiFi...");
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(1000);
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < timeout) {
+        delay(500);
         Serial.print(".");
     }
-    Serial.println("\nConnected to WiFi");
-
-    sendData();
-    
-    Serial.println("Going to sleep...");
-    esp_sleep_enable_timer_wakeup(SLEEP_TIME); // Set deep sleep duration
-    esp_deep_sleep_start(); // Enter deep sleep
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nConnected to WiFi");
+        return true;
+    } else {
+        Serial.println("\nWiFi connection failed");
+        return false;
+    }
 }
 
 void sendData() {
@@ -64,20 +52,21 @@ void sendData() {
         http.begin(SERVER_URL);
         http.addHeader("Content-Type", "application/json");
 
-        // Read sensor data
-        adc.attach(ADC_PIN);
+        // Read sensors
         float temp = bme.readTemperature();
         float humidity = bme.readHumidity();
         float pressure = bme.readPressure() / 100.0F;
-        float bat_voltage = adc.readVoltage() * deviderRatio;
+        float bat_voltage = adc.readVoltage() * VOLTAGE_DIVIDER_RATIO;
 
-        // Create JSON payload
-        String payload = "{";
-        payload += "\"temperature\":" + String(temp) + ",";
-        payload += "\"humidity\":" + String(humidity) + ",";
-        payload += "\"pressure\":" + String(pressure) + ",";
-        payload += "\"battery_voltage\":" + String(bat_voltage);
-        payload += "}";
+        // Build JSON
+        StaticJsonDocument<200> doc;
+        doc["temperature"] = temp;
+        doc["humidity"] = humidity;
+        doc["pressure"] = pressure;
+        doc["battery_voltage"] = bat_voltage;
+
+        String payload;
+        serializeJson(doc, payload);
 
         Serial.println("Sending data: " + payload);
 
@@ -86,16 +75,46 @@ void sendData() {
         if (httpResponseCode > 0) {
             Serial.println("Response: " + http.getString());
         } else {
-            Serial.println("Error on sending POST: " + String(httpResponseCode));
+            Serial.println("Error sending POST: " + String(httpResponseCode));
         }
 
         http.end();
     } else {
-        Serial.println("WiFi Disconnected!");
+        Serial.println("WiFi not connected, skipping send.");
     }
 }
 
-void loop() {
-    // Nothing here, as ESP32 resets after deep sleep
+void setup() {
+    Serial.begin(115200);
+
+    pinMode(SENSOR_PWR_PIN, OUTPUT);
+    digitalWrite(SENSOR_PWR_PIN, HIGH); // Power sensors
+
+    Wire.begin(I2C_SDA, I2C_SCL);
+
+    if (!bme.begin()) {
+        Serial.println("BME280 not found");
+        while (1) delay(1);
+    }
+
+    adc.attach(ADC_PIN);
+
+    if (connectToWiFi()) {
+        sendData();
+    }
+
+    Serial.println("Going to sleep...");
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    digitalWrite(SENSOR_PWR_PIN, LOW);
+
+    esp_sleep_enable_timer_wakeup(SLEEP_TIME_US);
+    delay(100);
+    esp_deep_sleep_start();
 }
+
+void loop() {
+    // Not used
+}
+
 
